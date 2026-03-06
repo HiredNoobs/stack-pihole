@@ -91,7 +91,7 @@ function stack_deploy {
   build_secrets
   log_info "Checking if primary and/or secondary need to be deployed..."
 
-  if ! docker stack ps "${STACK}_primary"; then
+  if ! docker stack ps "${STACK}_primary" >/dev/null 2>&1; then
     log_info "Deploying primary."
     docker stack deploy --detach=true \
       -c pihole.yml \
@@ -100,7 +100,7 @@ function stack_deploy {
       "${STACK}_primary"
   fi
 
-  if ! docker stack ps "${STACK}_secondary"; then
+  if ! docker stack ps "${STACK}_secondary" >/dev/null 2>&1; then
     log_info "Deploying secondary."
     docker stack deploy --detach=true \
       -c pihole.yml \
