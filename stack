@@ -150,4 +150,7 @@ function stack_deploy {
       -c secondary.yml \
       "${STACK}_secondary"
   fi
+
+  log_info "Installing default blocklists"
+  install_base_blocklists
 }
