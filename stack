@@ -27,19 +27,29 @@ function run_clean {
 
   log_info "'clean' has been overriden by stack."
 
-  if docker stack ps "${STACK}_PRIMARY"; then
+  if docker stack ps "${STACK}_primary"; then
     read -r -p "Teardown primary? [yes/N]: " primary_confirm
     if [[ "$primary_confirm" == "yes" ]]; then
-      docker stack rm "${STACK}_PRIMARY" --detach=false
+      docker stack rm "${STACK}_primary" --detach=false
     fi
   fi
 
-  if docker stack ps "${STACK}_SECONDARY"; then
+  if docker stack ps "${STACK}_secondary"; then
     read -r -p "Teardown secondary? [yes/N]: " secondary_confirm
     if [[ "$secondary_confirm" == "yes" ]]; then
-      docker stack rm "${STACK}_SECONDARY" --detach=false
+      docker stack rm "${STACK}_secondary" --detach=false
     fi
   fi
+}
+
+function run_status {
+  log_info "'status' has been overriden by stack."
+
+  log_info "Getting primary status."
+  docker stack ps "${STACK}_primary"
+
+  log_info "Getting secondary status."
+  docker stack ps "${STACK}_secondary"
 }
 
 # -----------------------------------------------------
