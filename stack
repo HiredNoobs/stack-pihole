@@ -72,8 +72,19 @@ function stack_discover {
   export PIHOLE_SECONDARY_REPLICAS=$(count "$PIHOLE_SECONDARY_NODES")
   export UNBOUND_SECONDARY_REPLICAS=$(count "$UNBOUND_SECONDARY_NODES")
 
-  export PIHOLE_PRIMARY_DNS_UPSTREAMS=$(printf "%s#$UNBOUND_DNS_PORT;" $UNBOUND_PRIMARY_NODES)
-  export PIHOLE_SECONDARY_DNS_UPSTREAMS=$(printf "%s#$UNBOUND_DNS_PORT;" $UNBOUND_SECONDARY_NODES)
+  export PIHOLE_PRIMARY_DNS_UPSTREAMS=$(
+    for host in $UNBOUND_PRIMARY_FQDN_NODES; do
+      ip=$(getent hosts "$host" | awk '{print $1}')
+      printf "%s#%s;" "$ip" "$UNBOUND_DNS_PORT"
+    done
+  )
+
+  export PIHOLE_SECONDARY_DNS_UPSTREAMS=$(
+    for host in $UNBOUND_SECONDARY_FQDN_NODES; do
+      ip=$(getent hosts "$host" | awk '{print $1}')
+      printf "%s#%s;" "$ip" "$UNBOUND_DNS_PORT"
+    done
+  )
 }
 
 function stack_env {
