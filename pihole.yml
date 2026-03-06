@@ -17,14 +17,14 @@ services:
         protocol: udp
     secrets:
       - source: pihole_cert
-        target: /etc/pihole/tls/pihole.pem
+        target: /etc/pihole-tls/pihole.pem
     volumes:
       - pihole_data:/etc/pihole
     environment:
       TZ: Europe/London
       FTLCONF_webserver_api_password: $PIHOLE_WEB_ADMIN_PASS
       FTLCONF_dns_hosts: $PIHOLE_LOCAL_DNS_RECORDS
-      FTLCONF_WEBSERVER_TLS: /etc/pihole/tls/pihole.pem
+      FTLCONF_WEBSERVER_TLS_CERT: /etc/pihole-tls/pihole.pem
       FTLCONF_dns_listeningMode: ALL
       FTLCONF_ntp_ipv4_active: "false"
       FTLCONF_ntp_ipv6_active: "false"
