@@ -26,8 +26,8 @@ services:
       FTLCONF_dns_hosts: $PIHOLE_LOCAL_DNS_RECORDS
       FTLCONF_WEBSERVER_TLS: /etc/pihole/tls/pihole.pem
       FTLCONF_dns_listeningMode: ALL
-      FTLCONF_ntp_ipv4_active: false
-      FTLCONF_ntp_ipv6_active: false
+      FTLCONF_ntp_ipv4_active: "false"
+      FTLCONF_ntp_ipv6_active: "false"
     cap_add:
       - SYS_NICE
 
