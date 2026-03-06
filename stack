@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+
+# -----------------------------------------------------
+# Helper functions
+# -----------------------------------------------------
+
+function build_secrets {
+  if [[ ! -f "$SECRETS/ca.crt" || ! -f "$SECRETS/ca.key" ]]; then
+    make-ca pihole -o "$SECRETS"
+    make-truststore pihole "$SECRETS/ca.crt" -o "$SECRETS"
+  fi
+  
+  if [[ ! -f "$SECRETS/pihole.crt" || ! -f "$SECRETS/pihole.key" ]]; then
+    make-cert pihole "$PIHOLE_NODES" -o "$SECRETS" --ca-crt "$SECRETS/ca.crt" --ca-key "$SECRETS/ca.key"
+  fi
+
+  cat "$SECRETS/pihole.crt" "$SECRETS/pihole.key" > "$SECRETS/pihole.pem"
+}
+
+
+# -----------------------------------------------------
+# Override functions
+# -----------------------------------------------------
+
+function run_clean {
+  local primary_confirm secondary_confirm
+
+  log_info "'clean' has been overriden by stack."
+
+  if docker stack ps "${STACK}_PRIMARY"; then
+    read -r -p "Teardown primary? [yes/N]: " primary_confirm
+    if [[ "$primary_confirm" == "yes" ]]; then
+      docker stack rm "${STACK}_PRIMARY" --detach=false
+    fi
+  fi
+
+  if docker stack ps "${STACK}_SECONDARY"; then
+    read -r -p "Teardown secondary? [yes/N]: " secondary_confirm
+    if [[ "$secondary_confirm" == "yes" ]]; then
+      docker stack rm "${STACK}_SECONDARY" --detach=false
+    fi
+  fi
+}
+
+# -----------------------------------------------------
+# Stack functions
+# -----------------------------------------------------
+
+function stack_check_env {
+  if [ ! -d "$CONFIGS" ] || [ ! -d "$SECRETS" ]; then
+    echo "Configs or secrets directory are missing from '$ENVIRONMENT_BASE'."
+    exit 1
+  fi
+}
+
+function stack_discover {
+  export PIHOLE_NODES="$PIHOLE_PRIMARY_NODES $PIHOLE_PRIMARY_FQDN_NODES $PIHOLE_SECONDARY_NODES $PIHOLE_SECONDARY_FQDN_NODES"
+
+  export PIHOLE_PRIMARY_REPLICAS=$(count "$PIHOLE_PRIMARY_NODES")
+  export UNBOUND_PRIMARY_REPLICAS=$(count "$UNBOUND_PRIMARY_NODES")
+
+  export PIHOLE_SECONDARY_REPLICAS=$(count "$PIHOLE_SECONDARY_NODES")
+  export UNBOUND_SECONDARY_REPLICAS=$(count "$UNBOUNT_SECONDARY_NODES")
+
+  export PIHOLE_PRIMARY_DNS_UPSTREAMS=$(printf "%s#$UNBOUND_DNS_PORT;" $UNBOUND_PRIMARY_NODES)
+  export PIHOLE_SECONDARY_DNS_UPSTREAMS=$(printf "%s#$UNBOUND_DNS_PORT;" $UNBOUND_SECONDARY_NODES)
+}
+
+function stack_env {
+  echo
+  echo "PIHOLE IMAGE            = $PIHOLE_IMAGE"
+  echo "PIHOLE PRIMARY NODES    = ($PIHOLE_PRIMARY_REPLICAS)"
+  list "$PIHOLE_PRIMARY_NODES"
+  echo
+  echo "PIHOLE SECONDARY NODES  = ($PIHOLE_SECONDARY_REPLICAS)"
+  list "$PIHOLE_SECONDARY_NODES"
+  echo
+  echo "PRIMARY DNS UPSTREAM    = $PIHOLE_PRIMARY_DNS_UPSTREAMS"
+  echo "SECONDARY DNS UPSTREAM  = $PIHOLE_SECONDARY_DNS_UPSTREAMS"
+  echo
+  echo "UNBOUND IMAGE           = $UNBOUND_IMAGE"
+  echo "UNBOUND PRIMARY NODES   = ($UNBOUND_PRIMARY_REPLICAS)"
+  list "$UNBOUND_PRIMARY_NODES"
+  echo
+  echo "UNBOUND SECONDARY NODES = ($UNBOUND_SECONDARY_REPLICAS)"
+  list "$UNBOUND_SECONDARY_NODES"
+  echo
+}
+
+function stack_deploy {
+  build_secrets
+  log_info "Checking if primary and/or secondary need to be deployed..."
+
+  if docker stack ps "${STACK}_primary"; then
+    log_info "Deploying primary."
+    docker stack deploy --detach=true \
+      -c pihole.yml \
+      -c unbound.yml \
+      -c primary.yml \
+      "${STACK}_primary"
+  fi
+
+  if docker stack ps "${STACK}_secondary"; then
+    log_info "Deploying secondary."
+    docker stack deploy --detach=true \
+      -c pihole.yml \
+      -c unbound.yml \
+      -c secondary.yml \
+      "${STACK}_secondary"
+  fi
+}

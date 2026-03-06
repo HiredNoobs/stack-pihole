@@ -1,0 +1,19 @@
+services:
+  pihole:
+    environment:
+      FTLCONF_dns_upstreams: $PIHOLE_PRIMARY_DNS_UPSTREAMS
+    deploy:
+      mode: replicated
+      replicas: $PIHOLE_PRIMARY_REPLICAS
+      placement:
+        max_replicas_per_node: 1
+        constraints:
+          - node.labels.${STACK}_pihole_primary == 1
+  unbound:
+    deploy:
+      mode: replicated
+      replicas: $UNBOUND_PRIMARY_REPLICAS
+      placement:
+        max_replicas_per_node: 1
+        constraints:
+          - node.labels.${STACK}_unbound_primary == 1

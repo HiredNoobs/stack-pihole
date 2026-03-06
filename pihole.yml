@@ -1,0 +1,39 @@
+services:
+  pihole:
+    hostname: pihole{{.Task.Slot}}
+    image: $PIHOLE_IMAGE
+    ports:
+      - mode: host
+        published: $PIHOLE_TLS_PORT
+        target: $PIHOLE_TLS_PORT
+        protocol: tcp
+      - mode: host
+        published: $PIHOLE_DNS_PORT
+        target: $PIHOLE_DNS_PORT
+        protocol: tcp
+      - mode: host
+        published: $PIHOLE_DNS_PORT
+        target: $PIHOLE_DNS_PORT
+        protocol: udp
+    secrets:
+      - source: pihole_cert
+        target: /etc/pihole/tls/pihole.pem
+    volumes:
+      - pihole_data:/etc/pihole
+    environment:
+      TZ: Europe/London
+      FTLCONF_webserver_api_password: $PIHOLE_WEB_ADMIN_PASS
+      FTLCONF_dns_hosts: $PIHOLE_LOCAL_DNS_RECORDS
+      FTLCONF_WEBSERVER_TLS: /etc/pihole/tls/pihole.pem
+      FTLCONF_dns_listeningMode: ALL
+      FTLCONF_ntp_ipv4_active: false
+      FTLCONF_ntp_ipv6_active: false
+    cap_add:
+      - SYS_NICE
+
+secrets:
+  pihole_cert:
+    file: $SECRETS/pihole.pem
+
+volumes:
+  pihole_data:
