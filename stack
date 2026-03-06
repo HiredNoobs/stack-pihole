@@ -27,12 +27,17 @@ function install_base_blocklists {
   local node container_id
 
   for node in $PIHOLE_PRIMARY_FQDN_NODES $PIHOLE_SECONDARY_FQDN_NODES; do
-    container_id=$(docker -H "ssh://$node" ps --filter "name=${STACK}_primary_pihole" --filter status=running -q)
+    container_id=$(docker -H "ssh://$node" ps --filter "name=${STACK}_.*_pihole" --filter status=running -q)
   
-    docker -H "ssh://$node" exec "$container_id" pihole-FTL gravity.db \
+    if [[ -z "$container_id" ]]; then
+      log_info "Couldn't find container ID on $node."
+      continue
+    fi
+
+    docker -H "ssh://$node" exec "$container_id" pihole-FTL /etc/pihole/gravity.db \
       "INSERT INTO adlist (address, enabled, comment) VALUES ('https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/pro.txt', 1, 'hagezi Pro')"
     
-    docker -H "ssh://$node" exec "$container_id" pihole-FTL gravity.db \
+    docker -H "ssh://$node" exec "$container_id" pihole-FTL /etc/pihole/gravity.db \
       "INSERT INTO adlist (address, enabled, comment) VALUES ('https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/tif.txt', 1, 'hagezi TIF')"
 
     docker -H "ssh://$node" exec "$container_id" pihole -g
