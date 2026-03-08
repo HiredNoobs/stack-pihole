@@ -135,7 +135,9 @@ function stack_env {
 }
 
 function stack_deploy {
+  check_stack_context
   build_secrets
+
   log_info "Checking if primary and/or secondary need to be deployed..."
 
   if ! docker stack ps "${STACK}_primary" >/dev/null 2>&1; then
