@@ -24,9 +24,11 @@ function build_secrets {
 }
 
 function install_base_blocklists {
-  local node container_id
+  local nodes node container_id
 
-  for node in $PIHOLE_PRIMARY_FQDN_NODES $PIHOLE_SECONDARY_FQDN_NODES; do
+  nodes="$1"
+
+  for node in $nodes; do
     container_id=$(docker -H "ssh://$node" ps --filter "name=${STACK}_.*_pihole" --filter status=running -q)
   
     if [[ -z "$container_id" ]]; then
@@ -147,6 +149,8 @@ function stack_deploy {
       -c unbound.yml \
       -c primary.yml \
       "${STACK}_primary"
+    
+    install_base_blocklists "$PIHOLE_PRIMARY_FQDN_NODES"
   fi
 
   if ! docker stack ps "${STACK}_secondary" >/dev/null 2>&1; then
@@ -156,8 +160,7 @@ function stack_deploy {
       -c unbound.yml \
       -c secondary.yml \
       "${STACK}_secondary"
+    
+    install_base_blocklists "$PIHOLE_SECONDARY_FQDN_NODES"
   fi
-
-  log_info "Installing default blocklists"
-  install_base_blocklists
 }
