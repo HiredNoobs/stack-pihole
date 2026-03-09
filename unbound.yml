@@ -11,5 +11,16 @@ services:
         published: $UNBOUND_DNS_PORT
         target: $UNBOUND_DNS_PORT
         protocol: udp
+    configs:
+      - source: unbound_conf
+        target: /usr/local/unbound/unbound.conf
+      - source: pihole_conf
+        target: /usr/local/unbound/conf.d/pihole.conf
     environment:
       TZ: Europe/London
+
+configs:
+  unbound_conf:
+    file: $CONFIGS/unbound.conf
+  pihole_conf:
+    file: $CONFIGS/pihole.conf
