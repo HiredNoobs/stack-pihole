@@ -2,15 +2,6 @@ services:
   unbound:
     hostname: unbound{{.Task.Slot}}
     image: $UNBOUND_IMAGE
-    ports:
-      - mode: host
-        published: $UNBOUND_DNS_PORT
-        target: $UNBOUND_DNS_PORT
-        protocol: tcp
-      - mode: host
-        published: $UNBOUND_DNS_PORT
-        target: $UNBOUND_DNS_PORT
-        protocol: udp
     configs:
       - source: unbound_conf
         target: /usr/local/unbound/unbound.conf

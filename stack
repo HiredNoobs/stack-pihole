@@ -101,16 +101,14 @@ function stack_discover {
   export UNBOUND_SECONDARY_REPLICAS=$(count "$UNBOUND_SECONDARY_NODES")
 
   export PIHOLE_PRIMARY_DNS_UPSTREAMS=$(
-    for host in $UNBOUND_PRIMARY_FQDN_NODES; do
-      ip=$(getent hosts "$host" | awk '{print $1}')
-      printf "%s#%s;" "$ip" "$UNBOUND_DNS_PORT"
+    for i in $(seq 1 "$UNBOUND_PRIMARY_REPLICAS"); do
+      printf "unbound%d#%s;" "$i" "$UNBOUND_DNS_PORT"
     done
   )
 
   export PIHOLE_SECONDARY_DNS_UPSTREAMS=$(
-    for host in $UNBOUND_SECONDARY_FQDN_NODES; do
-      ip=$(getent hosts "$host" | awk '{print $1}')
-      printf "%s#%s;" "$ip" "$UNBOUND_DNS_PORT"
+    for i in $(seq 1 "$UNBOUND_SECONDARY_REPLICAS"); do
+      printf "unbound%d#%s;" "$i" "$UNBOUND_DNS_PORT"
     done
   )
 }
