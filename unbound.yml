@@ -16,6 +16,8 @@ services:
         target: /usr/local/unbound/unbound.conf
       - source: pihole_conf
         target: /usr/local/unbound/conf.d/pihole.conf
+      - source: trust_anchor_conf
+        target: /usr/local/unbound/conf.d/trust-anchor.conf
     environment:
       TZ: Europe/London
 
@@ -24,3 +26,5 @@ configs:
     file: $CONFIGS/unbound.conf
   pihole_conf:
     file: $CONFIGS/pihole.conf
+  trust_anchor_conf:
+    file: $CONFIGS/trust-anchor.conf
