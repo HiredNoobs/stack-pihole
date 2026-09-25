@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+#
+# Pi-hole w/Unbound. A StatefulSet with one replica per labelled node, each pod running
+# Pi-hole with its own Unbound, behind a kube-vip LoadBalancer IP.
+
+# Variables substituted in k8s/*.yaml, anything else (e.g. $ in a regex) is left alone.
+K8S_TEMPLATE_VARS='$STACK $PIHOLE_IMAGE $UNBOUND_IMAGE $UNBOUND_DNS_PORT $PIHOLE_REPLICAS $PIHOLE_LB_IP $PIHOLE_LOCAL_DNS_RECORDS $PIHOLE_CONFIG_CHECKSUM'
 
 # -----------------------------------------------------
 # Helper functions
@@ -8,76 +14,70 @@ function check_stack_context {
   if [[ -z "${PIHOLE_WEB_ADMIN_PASS:-}" ]]; then
     log_warning "PIHOLE_WEB_ADMIN_PASS isn't set, web UI will be accessible without authentication."
   fi
+
+  if [[ -z "${PIHOLE_LB_IP:-}" ]]; then
+    log_warning "PIHOLE_LB_IP isn't set, DNS will only be reachable inside the cluster."
+  fi
+}
+
+function render {
+  envsubst "$K8S_TEMPLATE_VARS" < "$STACK_PATH/k8s/$1"
+}
+
+# Every name the web UI is reached by: the service, each pod and the nginx hostnames.
+function cert_names {
+  local i
+
+  echo "pihole.$DOMAIN pihole-web pihole-web.$K8S_NAMESPACE.svc pihole-web.$K8S_NAMESPACE.svc.cluster.local"
+  for ((i = 0; i < PIHOLE_REPLICAS; i++)); do
+    echo "pihole$((i + 1)).$DOMAIN pihole-$i.pihole.$K8S_NAMESPACE.svc pihole-$i.pihole.$K8S_NAMESPACE.svc.cluster.local"
+  done
 }
 
 function build_secrets {
+  local names
+  names=$(cert_names | xargs)
+
   if [[ ! -f "$SECRETS/ca.crt" || ! -f "$SECRETS/ca.key" ]]; then
     make-ca pihole -o "$SECRETS"
     make-truststore pihole "$SECRETS/ca.crt" -o "$SECRETS"
   fi
-  
-  if [[ ! -f "$SECRETS/pihole.crt" || ! -f "$SECRETS/pihole.key" ]]; then
-    make-cert pihole "$PIHOLE_NODES" -o "$SECRETS" --ca-crt "$SECRETS/ca.crt" --ca-key "$SECRETS/ca.key"
+
+  # Regenerated when the names change, e.g. when a replica is added.
+  if [[ ! -f "$SECRETS/pihole.crt" || ! -f "$SECRETS/pihole.key" || "$(cat "$SECRETS/pihole.names" 2> /dev/null)" != "$names" ]]; then
+    make-cert pihole "$names" -o "$SECRETS" --ca-crt "$SECRETS/ca.crt" --ca-key "$SECRETS/ca.key"
+    echo "$names" > "$SECRETS/pihole.names"
   fi
 
   cat "$SECRETS/pihole.crt" "$SECRETS/pihole.key" > "$SECRETS/pihole.pem"
 }
 
-function install_base_blocklists {
-  local nodes node container_id
+# Everything that needs a restart when it changes.
+function config {
+  local secret_args=(
+    --from-file=pihole.pem="$SECRETS/pihole.pem"
+    --from-literal=password="${PIHOLE_WEB_ADMIN_PASS:-}"
+  )
 
-  nodes="$1"
-
-  for node in $nodes; do
-    container_id=$(docker -H "ssh://$node" ps --filter "name=${STACK}_.*_pihole" --filter status=running -q)
-  
-    if [[ -z "$container_id" ]]; then
-      log_info "Couldn't find container ID on $node."
-      continue
-    fi
-
-    docker -H "ssh://$node" exec "$container_id" pihole-FTL /etc/pihole/gravity.db \
-      "INSERT INTO adlist (address, enabled, comment) VALUES ('https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/pro.txt', 1, 'hagezi Pro')"
-    
-    docker -H "ssh://$node" exec "$container_id" pihole-FTL /etc/pihole/gravity.db \
-      "INSERT INTO adlist (address, enabled, comment) VALUES ('https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/tif.txt', 1, 'hagezi TIF')"
-
-    docker -H "ssh://$node" exec "$container_id" pihole -g
-  done
-}
-
-# -----------------------------------------------------
-# Override functions
-# -----------------------------------------------------
-
-function run_clean {
-  local primary_confirm secondary_confirm
-
-  log_info "'clean' has been overriden by stack."
-
-  if docker stack ps "${STACK}_primary"; then
-    read -r -p "Teardown primary? [yes/N]: " primary_confirm
-    if [[ "$primary_confirm" == "yes" ]]; then
-      docker stack rm "${STACK}_primary" --detach=false
-    fi
+  # App password hash (from pihole.toml) for API clients like homepage, shared by every replica.
+  if [[ -n "${PIHOLE_API_APP_PWHASH:-}" ]]; then
+    secret_args+=(--from-literal=app-pwhash="$PIHOLE_API_APP_PWHASH")
   fi
 
-  if docker stack ps "${STACK}_secondary"; then
-    read -r -p "Teardown secondary? [yes/N]: " secondary_confirm
-    if [[ "$secondary_confirm" == "yes" ]]; then
-      docker stack rm "${STACK}_secondary" --detach=false
-    fi
-  fi
-}
-
-function run_status {
-  log_info "'status' has been overriden by stack."
-
-  log_info "Getting primary status."
-  docker stack ps "${STACK}_primary"
-
-  log_info "Getting secondary status."
-  docker stack ps "${STACK}_secondary"
+  kubectl create secret generic pihole "${secret_args[@]}" --dry-run=client -o yaml
+  echo "---"
+  kubectl create configmap unbound \
+    --from-file=unbound.conf="$CONFIGS/unbound.conf" \
+    --from-file=pihole.conf="$CONFIGS/pihole.conf" \
+    --from-file=trust-anchor.conf="$CONFIGS/trust-anchor.conf" \
+    --from-file=access-control.conf="$CONFIGS/access-control.conf" \
+    --dry-run=client -o yaml
+  echo "---"
+  kubectl create configmap pihole-scripts \
+    --from-file=sync-lists.sh="$STACK_PATH/k8s/sync-lists.sh" \
+    --dry-run=client -o yaml
+  echo "---"
+  render settings.yaml
 }
 
 # -----------------------------------------------------
@@ -85,80 +85,53 @@ function run_status {
 # -----------------------------------------------------
 
 function stack_check_env {
-  if [ ! -d "$SECRETS" ]; then
+  if [ ! -d "$CONFIGS" ] || [ ! -d "$SECRETS" ]; then
     echo "Configs or secrets directory are missing from '$ENVIRONMENT_BASE'."
     exit 1
   fi
 }
 
 function stack_discover {
-  export PIHOLE_NODES="$PIHOLE_PRIMARY_NODES $PIHOLE_PRIMARY_FQDN_NODES $PIHOLE_SECONDARY_NODES $PIHOLE_SECONDARY_FQDN_NODES"
-
-  export PIHOLE_PRIMARY_REPLICAS=$(count "$PIHOLE_PRIMARY_NODES")
-  export UNBOUND_PRIMARY_REPLICAS=$(count "$UNBOUND_PRIMARY_NODES")
-
-  export PIHOLE_SECONDARY_REPLICAS=$(count "$PIHOLE_SECONDARY_NODES")
-  export UNBOUND_SECONDARY_REPLICAS=$(count "$UNBOUND_SECONDARY_NODES")
-
-  export PIHOLE_PRIMARY_DNS_UPSTREAMS=$(
-    for i in $(seq 1 "$UNBOUND_PRIMARY_REPLICAS"); do
-      printf "unbound%d#%s;" "$i" "$UNBOUND_DNS_PORT"
-    done
-  )
-
-  export PIHOLE_SECONDARY_DNS_UPSTREAMS=$(
-    for i in $(seq 1 "$UNBOUND_SECONDARY_REPLICAS"); do
-      printf "unbound%d#%s;" "$i" "$UNBOUND_DNS_PORT"
-    done
-  )
+  export PIHOLE_REPLICAS=$(count "$PIHOLE_NODES")
 }
 
 function stack_env {
   echo
-  echo "PIHOLE IMAGE            = $PIHOLE_IMAGE"
-  echo "PIHOLE PRIMARY NODES    = ($PIHOLE_PRIMARY_REPLICAS)"
-  list "$PIHOLE_PRIMARY_NODES"
+  echo "PIHOLE IMAGE  = $PIHOLE_IMAGE"
+  echo "UNBOUND IMAGE = $UNBOUND_IMAGE"
+  echo "PIHOLE NODES  = ($PIHOLE_REPLICAS)"
+  list "$PIHOLE_NODES"
   echo
-  echo "PIHOLE SECONDARY NODES  = ($PIHOLE_SECONDARY_REPLICAS)"
-  list "$PIHOLE_SECONDARY_NODES"
-  echo
-  echo "PRIMARY DNS UPSTREAM    = $PIHOLE_PRIMARY_DNS_UPSTREAMS"
-  echo "SECONDARY DNS UPSTREAM  = $PIHOLE_SECONDARY_DNS_UPSTREAMS"
-  echo
-  echo "UNBOUND IMAGE           = $UNBOUND_IMAGE"
-  echo "UNBOUND PRIMARY NODES   = ($UNBOUND_PRIMARY_REPLICAS)"
-  list "$UNBOUND_PRIMARY_NODES"
-  echo
-  echo "UNBOUND SECONDARY NODES = ($UNBOUND_SECONDARY_REPLICAS)"
-  list "$UNBOUND_SECONDARY_NODES"
+  echo "DNS IP        = $PIHOLE_LB_IP"
   echo
 }
 
 function stack_deploy {
+  local manifests_config
+
   check_stack_context
+
+  if (( PIHOLE_REPLICAS == 0 )); then
+    log_error "No nodes are labelled ${STACK}_pihole."
+    exit 1
+  fi
+
   build_secrets
 
-  log_info "Checking if primary and/or secondary need to be deployed..."
+  manifests_config=$(config)
+  export PIHOLE_CONFIG_CHECKSUM=$(sha256sum <<< "$manifests_config" | cut -d' ' -f1)
 
-  if ! docker stack ps "${STACK}_primary" >/dev/null 2>&1; then
-    log_info "Deploying primary."
-    docker stack deploy --detach=true \
-      -c pihole.yml \
-      -c unbound.yml \
-      -c primary.yml \
-      "${STACK}_primary"
-    
-    install_base_blocklists "$PIHOLE_PRIMARY_FQDN_NODES"
-  fi
+  log_info "Deploying $PIHOLE_REPLICAS Pi-hole replica(s) to $K8S_NAMESPACE."
+  {
+    echo "$manifests_config"
+    echo "---"
+    # Synced live by each pod, so not part of the checksum.
+    kubectl create configmap pihole-lists --from-file="$CONFIGS/lists/" --dry-run=client -o yaml
+    echo "---"
+    render services.yaml
+    echo "---"
+    render pihole.yaml
+  } | kubectl apply --namespace "$K8S_NAMESPACE" -f -
 
-  if ! docker stack ps "${STACK}_secondary" >/dev/null 2>&1; then
-    log_info "Deploying secondary."
-    docker stack deploy --detach=true \
-      -c pihole.yml \
-      -c unbound.yml \
-      -c secondary.yml \
-      "${STACK}_secondary"
-    
-    install_base_blocklists "$PIHOLE_SECONDARY_FQDN_NODES"
-  fi
+  kubectl rollout status statefulset/pihole --namespace "$K8S_NAMESPACE" --timeout=15m
 }

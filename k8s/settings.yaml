@@ -1,0 +1,17 @@
+# Pi-hole settings, anything set this way is read only in the web UI.
+# See https://docs.pi-hole.net/docker/configuration/ for the available FTLCONF_ settings.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pihole-settings
+  labels:
+    app.kubernetes.io/name: pihole
+data:
+  TZ: Europe/London
+  # Unbound runs in the same pod
+  FTLCONF_dns_upstreams: "127.0.0.1#${UNBOUND_DNS_PORT}"
+  FTLCONF_dns_listeningMode: ALL
+  FTLCONF_dns_hosts: "${PIHOLE_LOCAL_DNS_RECORDS}"
+  FTLCONF_webserver_tls_cert: /etc/pihole-tls/pihole.pem
+  FTLCONF_ntp_ipv4_active: "false"
+  FTLCONF_ntp_ipv6_active: "false"
