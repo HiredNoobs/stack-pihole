@@ -17,6 +17,8 @@ function check_stack_context {
 
   if [[ -z "${PIHOLE_LB_IP:-}" ]]; then
     log_warning "PIHOLE_LB_IP isn't set, DNS will only be reachable inside the cluster."
+  else
+    k8s_warn_kube_vip
   fi
 }
 
