@@ -12,6 +12,7 @@ data:
   FTLCONF_dns_upstreams: "127.0.0.1#${UNBOUND_DNS_PORT}"
   FTLCONF_dns_listeningMode: ALL
   FTLCONF_dns_hosts: "${PIHOLE_LOCAL_DNS_RECORDS}"
+  FTLCONF_misc_dnsmasq_lines: "${PIHOLE_LOCAL_DNS_DOMAINS}"
   FTLCONF_webserver_tls_cert: /etc/pihole-tls/pihole.pem
   FTLCONF_ntp_ipv4_active: "false"
   FTLCONF_ntp_ipv6_active: "false"

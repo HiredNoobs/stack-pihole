@@ -4,7 +4,7 @@
 # Pi-hole with its own Unbound, behind a kube-vip LoadBalancer IP.
 
 # Variables substituted in k8s/*.yaml, anything else (e.g. $ in a regex) is left alone.
-K8S_TEMPLATE_VARS='$STACK $PIHOLE_IMAGE $UNBOUND_IMAGE $UNBOUND_DNS_PORT $PIHOLE_REPLICAS $PIHOLE_LB_IP $PIHOLE_LOCAL_DNS_RECORDS $PIHOLE_CONFIG_CHECKSUM'
+K8S_TEMPLATE_VARS='$STACK $PIHOLE_IMAGE $UNBOUND_IMAGE $UNBOUND_DNS_PORT $PIHOLE_REPLICAS $PIHOLE_LB_IP $PIHOLE_LOCAL_DNS_RECORDS $PIHOLE_LOCAL_DNS_DOMAINS $PIHOLE_CONFIG_CHECKSUM'
 
 # -----------------------------------------------------
 # Helper functions
@@ -52,6 +52,12 @@ function build_secrets {
   fi
 
   cat "$SECRETS/pihole.crt" "$SECRETS/pihole.key" > "$SECRETS/pihole.pem"
+}
+
+# A local=/name/ line for each local DNS record, so Pi-hole answers every query type for those
+# names itself (e.g. an empty AAAA or HTTPS answer) instead of forwarding them upstream.
+function local_dns_domains {
+  tr ';' '\n' <<< "$PIHOLE_LOCAL_DNS_RECORDS" | awk 'NF { printf "local=/%s/;", $2 }'
 }
 
 # Everything that needs a restart when it changes.
@@ -120,6 +126,7 @@ function stack_deploy {
 
   build_secrets
 
+  export PIHOLE_LOCAL_DNS_DOMAINS=$(local_dns_domains)
   manifests_config=$(config)
   export PIHOLE_CONFIG_CHECKSUM=$(sha256sum <<< "$manifests_config" | cut -d' ' -f1)
 
